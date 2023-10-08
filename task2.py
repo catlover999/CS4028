@@ -6,7 +6,7 @@ def crack(filename: str) -> dict:
         with open(filename) as f:
             for value in f:
                 value = value.strip()
-                hashes[hashlib.sha512(f"{value}".encode()).hexdigest()] = value
+                hashes[hashlib.sha512(value.encode()).hexdigest()] = value
     except FileNotFoundError:
         print("{filename} not found.")
     except IOError:
