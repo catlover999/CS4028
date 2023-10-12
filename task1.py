@@ -3,18 +3,16 @@ from multiprocessing import Manager, Process, cpu_count, Event
 import hashlib
 import time
 
-def crack(start: int, num: int, hashes: list, results: dict, stop: Event):
+def crack(start: int, num: int, hashes: tuple, results: dict, stop: Event):
     i = start
-    while stop:
+    while not stop.is_set():
         plaintext = base_repr(i, 36).lower()
-        hashed = hashlib.sha512(x.encode()).hexdigest()
-        if h in hashes:
-            results[plaintext] = hashed
-            with lock:
-                if hashed in hashes:  # Double-check to avoid race condition
-                    hashes.remove(hashed)
-        i += num
-def monitor(stop: Event, hashes):
+        hashed = hashlib.sha512(plaintext.encode()).hexdigest()
+        if hashed in hashes:
+            results[hashed] = plaintext
+            if sorted(results.keys()) == sorted(hashes):
+                stop.set()
+        i += num   
 
 def brute(list_of_hashes) -> list:
     try:
@@ -24,11 +22,10 @@ def brute(list_of_hashes) -> list:
 
     with Manager() as manager:
         results = manager.dict()
-        hashes = manager.list(list_of_hashes)
         processes = []
         stop = Event()
         for processe_num in range(processe_count):
-            processe = Process(target=crack, args=(processe_num, processe_count, hashes, results, stop))
+            processe = Process(target=crack, args=(processe_num, processe_count, list_of_hashes, results, stop))
             processes.append(processe)
             processe.start()
         for processe in processes:
