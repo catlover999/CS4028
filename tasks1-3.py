@@ -1,48 +1,65 @@
-from multiprocessing import Manager, Process, cpu_count, Event, Barrier
 import hashlib
 import time
+from multiprocessing import Manager, Process, Event, Barrier, Lock, managers, cpu_count
 
-def crack(i: int, num: int, hashes: list, results: dict, change: Event, barrier: Barrier):
+def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, results: dict, change: Event, barrier: Barrier, sync_frequency: int, lock: Lock) -> None:
+    """
+    Attempt to crack passwords by hashing and comparing to target hashes.
+    
+    Parameters:
+    - index (int): Starting number for hash generation.
+    - step (int): Step size for the numbers to be hashed.
+    - global_hashes (ListProxy): Shared list of target hashes to crack.
+    - results (dict): Shared dictionary to store cracked hashes and corresponding plaintext.
+    - change (Event): Event to signal when a password is cracked.
+    - barrier (Barrier): Barrier to synchronize processes after a change event is set to ensure that that every process updates their local_hashes (failure to do this could lead to processes continuing exection after all hashes have been found)
+    - sync_frequency (int): Number of iterations between checks of the change_event.
+    - lock (Lock): Lock for modifying global hashes and results.
+    """
     digits = '0123456789abcdefghijklmnopqrstuvwxyz'
     while True:
-        local_hashes = set(hashes)
+        # Accessing a ListProxy is a very expensive operation. If read on every itteration, it roughly increases execution time by 2 orders of magnatude
+        local_hashes = list(global_hashes)
         while not change.is_set():
-            # Adapted from numpy's base_repr()
-            n = i
-            res = []
-            while n:
-                res.append(digits[n % len(digits)])
-                n //= len(digits)
-            plaintext = ''.join(reversed(res or '0'))
+            # Accessing the shared object 'change' is an expensive operation. Only checking it occasionily roughly halves execution time
+            for _ in range(sync_frequency):
+                # Adapted from numpy's base_repr()
+                n = index
+                res = []
+                while n:
+                    res.append(digits[n % len(digits)])
+                    n //= len(digits)
+                plaintext = ''.join(reversed(res or '0'))
 
-            hashed = hashlib.sha512(plaintext.encode()).hexdigest()
-            
-            if hashed in local_hashes:
-                hashes.remove(hashed)
-                results[hashed] = plaintext
-                change.set()
-            i += num   
+                hashed = hashlib.sha512(plaintext.encode()).hexdigest()
+                
+                index += step
+
+                if hashed in local_hashes:
+                    with lock:
+                        global_hashes.remove(hashed)
+                        results[hashed] = plaintext
+                        change.set()
+                    break
         
-        if not len(hashes) == 0:
+        if global_hashes:
             barrier.wait()
             change.clear()
         else:
             return
 
-def brute(list_of_hashes) -> list:
-    try:
-        process_count = cpu_count()
-    except NotImplementedError:
-        process_count = 4
-
+def brute_force_hashes(list_of_hashes: list) -> list:
+    process_count = cpu_count()
     with Manager() as manager:
         hashes = manager.list(list_of_hashes)
         results = manager.dict()
         barrier = Barrier(process_count)
         processes = []
         change = Event()
+        sync_frequency = 20
+        lock = Lock()
         for process_num in range(process_count):
-            process = Process(target=crack, args=(process_num, process_count, hashes, results, change, barrier))
+            process = Process(target=crack_passwords, args=(process_num, process_count, hashes, results, change, barrier, sync_frequency, lock))
             processes.append(process)
             process.start()
         for process in processes:
@@ -69,8 +86,7 @@ def find_hashes_in_list(filename: str, l: list) -> dict:
         if l[i] in hashes:
             out[l[i]] = hashes[l[i]]
         else:
-            out[l[i]] = "Not found"
-            
+            out[l[i]] = "Not found" 
     return out
 
 def find_salted_hashes_in_list(filename: str, l: list) -> dict:
@@ -92,9 +108,10 @@ if __name__ == '__main__':
     # Task 1
     hashes = ['f14aae6a0e050b74e4b7b9a5b2ef1a60ceccbbca39b132ae3e8bf88d3a946c6d8687f3266fd2b626419d8b67dcf1d8d7c0fe72d4919d9bd05efbd37070cfb41a', 'e85e639da67767984cebd6347092df661ed79e1ad21e402f8e7de01fdedb5b0f165cbb30a20948f1ba3f94fe33de5d5377e7f6c7bb47d017e6dab6a217d6cc24','4e2589ee5a155a86ac912a5d34755f0e3a7d1f595914373da638c20fecd7256ea1647069a2bb48ac421111a875d7f4294c7236292590302497f84f19e7227d80', 'afd66cdf7114eae7bd91da3ae49b73b866299ae545a44677d72e09692cdee3b79a022d8dcec99948359e5f8b01b161cd6cfc7bd966c5becf1dff6abd21634f4b']
     start = time.time()
-    passwords = brute(hashes)
+    passwords = brute_force_hashes(hashes)
     print_hash_password({h:p for h,p in zip(hashes,passwords)})
 
+    # Supstitute filename for the full path if it's not in your pwd
     filename = "PasswordDictionary.txt"
     # Task 2
     print_hash_password(find_hashes_in_list(filename, ['31a3423d8f8d93b92baffd753608697ebb695e4fca4610ad7e08d3d0eb7f69d75cb16d61caf7cead0546b9be4e4346c56758e94fc5efe8b437c44ad460628c70','9381163828feb9072d232e02a1ee684a141fa9cddcf81c619e16f1dbbf6818c2edcc7ce2dc053eec3918f05d0946dd5386cbd50f790876449ae589c5b5f82762','a02f6423e725206b0ece283a6d59c85e71c4c5a9788351a24b1ebb18dcd8021ab854409130a3ac941fa35d1334672e36ed312a43462f4c91ca2822dd5762bd2b','834bd9315cb4711f052a5cc25641e947fc2b3ee94c89d90ed37da2d92b0ae0a33f8f7479c2a57a32feabdde1853e10c2573b673552d25b26943aefc3a0d05699','0ae72941b22a8733ca300161619ba9f8314ccf85f4bad1df0dc488fdd15d220b2dba3154dc8c78c577979abd514bf7949ddfece61d37614fbae7819710cae7ab','6768082bcb1ad00f831b4f0653c7e70d9cbc0f60df9f7d16a5f2da0886b3ce92b4cc458fbf03fea094e663cb397a76622de41305debbbb203dbcedff23a10d8a','0f17b11e84964b8df96c36e8aaa68bfa5655d3adf3bf7b4dc162a6aa0f7514f32903b3ceb53d223e74946052c233c466fc0f2cc18c8bf08aa5d0139f58157350','cf4f5338c0f2ccd3b7728d205bc52f0e2f607388ba361839bd6894c6fb8e267beb5b5bfe13b6e8cc5ab04c58b5619968615265141cc6a8a9cd5fd8cc48d837ec','1830a3dfe79e29d30441f8d736e2be7dbc3aa912f11abbffb91810efeef1f60426c31b6d666eadd83bbba2cc650d8f9a6393310b84e2ef02efa9fe161bf8f41d','3b46175f10fdb54c7941eca89cc813ddd8feb611ed3b331093a3948e3ab0c3b141ff6a7920f9a068ab0bf02d7ddaf2a52ef62d8fb3a6719cf25ec6f0061da791']))
