@@ -3,6 +3,8 @@ The base_repr function from NumPy (lines 2052-2105 of numpy/core/numeric.py) was
 The the adapted version removes additional flags that are otherwise unused. It uses a modified version of base36 (using lower case instead of upper case characters). The modified version additionally supports changing the search space through modifying the contstant at the top of the application. This allows for easy transition to Base95 (aka, the set of ASCII printable characters), which is completely unsupported by NumPy's implimentation.
 
 ---
+
+
 Copyright (c) 2005-2023, NumPy Developers.
 All rights reserved.
 
