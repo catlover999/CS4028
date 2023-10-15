@@ -1,8 +1,21 @@
 import hashlib
 import time
+from typing import List, Dict
+import logging
 from multiprocessing import Manager, Process, Event, Barrier, Lock, managers, cpu_count
 
-def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, results: dict, change: Event, barrier: Barrier, sync_frequency: int, lock: Lock) -> None:
+DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz'
+SYNC_FREQUENCY = 20
+
+def base_repr(index: int) -> str:
+    """Return a string representation of a number in the given base system. This was adapted from the base_repr function of numpy"""
+    char_array = []
+    while index:
+        char_array.append(DIGITS[index % len(DIGITS)])
+        index //= len(DIGITS)
+    return ''.join(reversed(char_array or '0'))
+    
+def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, results: dict, change: Event, barrier: Barrier, lock: Lock) -> None:
     """
     Attempt to crack passwords by hashing and comparing to target hashes.
     
@@ -13,24 +26,14 @@ def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, re
     - results (dict): Shared dictionary to store cracked hashes and corresponding plaintext.
     - change (Event): Event to signal when a password is cracked.
     - barrier (Barrier): Barrier to synchronize processes after a change event is set to ensure that that every process updates their local_hashes (failure to do this could lead to processes continuing exection after all hashes have been found)
-    - sync_frequency (int): Number of iterations between checks of the change_event.
     - lock (Lock): Lock for modifying global hashes and results.
     """
-    digits = '0123456789abcdefghijklmnopqrstuvwxyz'
     while True:
-        # Accessing a ListProxy is a very expensive operation. If read on every itteration, it roughly increases execution time by 2 orders of magnatude
-        local_hashes = list(global_hashes)
+        local_hashes = set(global_hashes)
         while not change.is_set():
-            # Accessing the shared object 'change' is an expensive operation. Only checking it occasionily roughly halves execution time
-            for _ in range(sync_frequency):
-                # Adapted from numpy's base_repr()
-                n = index
-                res = []
-                while n:
-                    res.append(digits[n % len(digits)])
-                    n //= len(digits)
-                plaintext = ''.join(reversed(res or '0'))
-
+            for _ in range(SYNC_FREQUENCY):
+                plaintext = base_repr(index)
+                
                 hashed = hashlib.sha512(plaintext.encode()).hexdigest()
                 
                 index += step
@@ -40,7 +43,6 @@ def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, re
                         global_hashes.remove(hashed)
                         results[hashed] = plaintext
                         change.set()
-                    break
         
         if global_hashes:
             barrier.wait()
@@ -48,25 +50,33 @@ def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, re
         else:
             return
 
-def brute_force_hashes(list_of_hashes: list) -> list:
-    process_count = cpu_count()
+def brute_force_hashes(list_of_hashes: List[str]) -> List[str]:
+    """
+    Attempt to crack a list of hashes using multiprocessing.
+
+    Parameters:
+    - hashes_to_crack (List[str]): Hashes to be cracked.
+
+    Returns:
+    - List[str]: Plaintext corresponding to the provided hashes.
+    """
     with Manager() as manager:
+        processes = []
+        process_count = cpu_count()
         hashes = manager.list(list_of_hashes)
         results = manager.dict()
-        barrier = Barrier(process_count)
-        processes = []
         change = Event()
-        sync_frequency = 20
+        barrier = Barrier(process_count)
         lock = Lock()
         for process_num in range(process_count):
-            process = Process(target=crack_passwords, args=(process_num, process_count, hashes, results, change, barrier, sync_frequency, lock))
+            process = Process(target=crack_passwords, args=(process_num, process_count, hashes, results, change, barrier, lock))
             processes.append(process)
             process.start()
         for process in processes:
             process.join()    
         return [results[item] for item in list_of_hashes] # ensures the order of hashes matches the input order
 
-def hash_dictionary(filename: str, salt: str) -> dict:
+def hash_dictionary(filename: str, salt: str) -> Dict[str, str]:
     hashes = dict()
     try:
         with open(filename) as f:
@@ -74,12 +84,12 @@ def hash_dictionary(filename: str, salt: str) -> dict:
                 value = value.strip()
                 hashes[hashlib.sha512((value + salt).encode()).hexdigest()] = value
     except FileNotFoundError:
-        print("{filename} not found.")
+        logging.error("{filename} not found.")
     except IOError:
-        print("An error occurred while reading the file.")
+        logging.error("An error occurred while reading the file.")
     return hashes
 
-def find_hashes_in_list(filename: str, l: list) -> dict:
+def find_hashes_in_list(filename: str, l: List[str]) -> Dict[str, str]:
     hashes = hash_dictionary(filename, "")
     out = dict()
     for i in range(len(l)):    
@@ -89,7 +99,7 @@ def find_hashes_in_list(filename: str, l: list) -> dict:
             out[l[i]] = "Not found" 
     return out
 
-def find_salted_hashes_in_list(filename: str, l: list) -> dict:
+def find_salted_hashes_in_list(filename: str, l: List[str]) -> Dict[str, str]:
     out = dict()
     for i in range(len(l)):
         hashes = hash_dictionary(filename, l[i][1])
@@ -100,9 +110,9 @@ def find_salted_hashes_in_list(filename: str, l: list) -> dict:
             out[x] = "Not found"
     return out
 
-def print_hash_password(x: dict):
+def print_hash_password(x: Dict[str, str]):
     for i, j in x.items():
-        print("Hash: " + i + " is " + j)
+        print(f"Hash: {i} is {j}")
 
 if __name__ == '__main__':
     # Task 1
