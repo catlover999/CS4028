@@ -1,0 +1,21 @@
+# Rust artifacts
+task4/target/
+task4/Cargo.lock
+
+# Callgrind output
+task4/callgrind.out.*
+
+# Profiling data
+task4/flamegraph.html
+task4/perf.data
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# IDEs and Editors
+*.swp
+*.swo
+*.idea/
+.vscode/
+*.bak
