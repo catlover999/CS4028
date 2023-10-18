@@ -1,6 +1,6 @@
 The base_repr function from NumPy (lines 2052-2105 of numpy/core/numeric.py) was adapted for the assessment's spesific requirements. The code reproduced in accordance with the below lisence. Perma link: https://github.com/numpy/numpy/blob/b3f09c6787e98e57eff303cbb75c3001dd8b0514/numpy/core/numeric.py#L2052-L2105
 
-The the adapted version removes additional flags that are otherwise unused. It uses a modified version of base36 (using lower case instead of upper case characters). The modified version additionally supports changing the search space through modifying the contstant at the top of the application. This allows for easy transition to Base95 (aka, the set of ASCII printable characters), which is completely unsupported by NumPy's implimentation.
+The adapted version removes additional flags that are otherwise unused. It uses a modified version of base36 (using lowercase instead of uppercase characters). The modified version additionally supports changing the search space through modifying the contstant at the top of the application (DIGITS variable). This allows for an easy transition to Base95 (aka, the set of ASCII printable characters as spesified in the assessment), which is completely unsupported by NumPy's implimentation.
 
 ------------
 

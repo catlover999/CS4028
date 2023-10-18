@@ -1,21 +1,21 @@
 import hashlib
 import time
 from typing import List, Dict
-import logging
+from logging import error
 from multiprocessing import Manager, Process, Event, Barrier, Lock, managers, cpu_count
 
 DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz'
 SYNC_FREQUENCY = 20
 
 def base_repr(index: int) -> str:
-    """Return a string representation of a number in the given base system. This was adapted from the base_repr function of numpy"""
+    """Return a string representation of a number in the given base system. This was adapted from the base_repr function of NumPy"""
     char_array = []
     while index:
         char_array.append(DIGITS[index % len(DIGITS)])
         index //= len(DIGITS)
     return ''.join(reversed(char_array or '0'))
     
-def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, results: dict, change: Event, barrier: Barrier, lock: Lock) -> None:
+def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, results: Dict[str, str], change: Event, barrier: Barrier, lock: Lock) -> None:
     """
     Attempt to crack passwords by hashing and comparing to target hashes.
     
@@ -23,7 +23,7 @@ def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, re
     - index (int): Starting number for hash generation.
     - step (int): Step size for the numbers to be hashed.
     - global_hashes (ListProxy): Shared list of target hashes to crack.
-    - results (dict): Shared dictionary to store cracked hashes and corresponding plaintext.
+    - results (Dict[str, str]): Shared dictionary to store cracked hashes and corresponding plaintext.
     - change (Event): Event to signal when a password is cracked.
     - barrier (Barrier): Barrier to synchronize processes after a change event is set to ensure that that every process updates their local_hashes (failure to do this could lead to processes continuing exection after all hashes have been found)
     - lock (Lock): Lock for modifying global hashes and results.
@@ -44,11 +44,11 @@ def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, re
                         results[hashed] = plaintext
                         change.set()
         
-        if global_hashes:
-            barrier.wait()
-            change.clear()
-        else:
+        if not global_hashes:
             return
+        
+        barrier.wait()
+        change.clear()
 
 def brute_force_hashes(list_of_hashes: List[str]) -> List[str]:
     """
@@ -76,21 +76,31 @@ def brute_force_hashes(list_of_hashes: List[str]) -> List[str]:
             process.join()    
         return [results[item] for item in list_of_hashes] # ensures the order of hashes matches the input order
 
-def hash_dictionary(filename: str, salt: str) -> Dict[str, str]:
+def hash_dictionary(filename: str, salt: str = "") -> Dict[str, str]:
+    """
+    Hashes every line in a plaintext dictionary file.
+
+    Parameters:
+    - filename (str): Path to password dictionary. Supports relative and full paths.
+    - salt (str): Optional salt to apply to every password before hashing. 
+
+    Returns:
+    - Dict[str, str]]: Hash with corresponding Plaintext as key/value pair.
+    """
     hashes = dict()
     try:
         with open(filename) as f:
             for value in f:
                 value = value.strip()
-                hashes[hashlib.sha512((value + salt).encode()).hexdigest()] = value
+                hashes[hashlib.sha512(f"{value}{salt}".encode()).hexdigest()] = value
     except FileNotFoundError:
-        logging.error("f{filename} not found.")
+        error(f"{filename} not found.")
     except IOError:
-        logging.error("An error occurred while reading the file.")
+        error("An error occurred while reading the file.")
     return hashes
 
 def find_hashes_in_list(filename: str, l: List[str]) -> List[str]:
-    hashes = hash_dictionary(filename, "")
+    hashes = hash_dictionary(filename)
     out = []
     for i in range(len(l)):    
         if l[i] in hashes:
@@ -103,9 +113,9 @@ def find_salted_hashes_in_list(filename: str, l: List[str]) -> List[str]:
     out = []
     for i in range(len(l)):
         hashes = hash_dictionary(filename, l[i][1])
-        x = l[i][0]
-        if x in hashes:
-            out.append(hashes[x])
+        hash_ = l[i][0]
+        if hash_ in hashes:
+            out.append(hashes[hash_])
         else:
             out.append("Not found")
     return out
