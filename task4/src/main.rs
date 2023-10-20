@@ -2,64 +2,48 @@ extern crate base_custom;
 use base_custom::BaseCustom;
 use std::sync::{Arc, Mutex, Barrier};
 use std::thread;
-use std::collections::{HashSet, HashMap};
+use std::collections::HashMap;
 use sha2::{Sha512, Digest};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
-const SYNC_FREQUENCY: usize = 100;
 
-//fn base_repr(mut index: usize) -> String {
-//    let mut char_array = Vec::new();
-//    while index > 0 {
-//        char_array.push(DIGITS.chars().nth(index % DIGITS.len()).unwrap());
-//        index /= DIGITS.len();
-//    }
-//    char_array.into_iter().rev().collect::<String>()
-//}
-
-// Arc<Mutex<bool>>
-fn crack_passwords(mut index: usize, step: usize, global_hashes: Arc<Mutex<HashSet<String>>>, results: Arc<Mutex<HashMap<String, String>>>, change: Arc<AtomicBool>, barrier: Arc<Barrier>) {
+fn crack_passwords(mut index: usize, step: usize, global_hashes: Arc<Mutex<Vec<String>>>, results: Arc<Mutex<HashMap<String, String>>>, change: Arc<AtomicBool>, barrier: Arc<Barrier>) {
     let base36 = BaseCustom::<char>::new(DIGITS.chars().collect());
+    let start: usize = index;
     loop {
-        let local_hashes: HashSet<_> = global_hashes.lock().unwrap().clone();
-        // !change.load(Ordering::Relaxed)
-        // !*change.lock().unwrap()
+        let local_hashes = global_hashes.lock().unwrap().clone();
         while !change.load(Ordering::Acquire) {
-            for _ in 0..SYNC_FREQUENCY {
-                // let plaintext = base_repr(index);
-                let plaintext = base36.gen(index.try_into().unwrap());
-                let hashed = format!("{:x}", Sha512::digest(plaintext.as_bytes()));
-
-                if local_hashes.contains(&hashed) {
-                    println!("Index: {:?}", index);
-                    global_hashes.lock().unwrap().retain(|x| x != &hashed);
-                    results.lock().unwrap().insert(hashed.clone(), plaintext);
-                    change.store(true, Ordering::Release);
-                    // *change.lock().unwrap() = true;
-                }
-    
-                index += step;
+            let plaintext = base36.gen(index.try_into().unwrap());
+            let hashed = format!("{:x}", Sha512::digest(plaintext.as_bytes()));
+            //println!("Index: {:?}", index);
+            if local_hashes.contains(&hashed) {
+                println!("Index: {:?}", index);
+                global_hashes.lock().unwrap().retain(|x| x != &hashed);
+                results.lock().unwrap().insert(hashed.clone(), plaintext);
+                change.store(true, Ordering::Release);
+                break;
             }
-        }
-        
-        if global_hashes.lock().unwrap().is_empty() {
-            break;
+
+            index += step;
         }
         
         barrier.wait();
-        // *change.lock().unwrap() = false;
-        change.store(false, Ordering::Relaxed);
+        change.store(false, Ordering::Release);
+        //println!("GL: {:?}", global_hashes);
+        if global_hashes.lock().unwrap().is_empty() {
+            println!("Quiting thread {:?} at {:?},", start, index);
+            break;
+        }
     }
 }
 
 fn brute_force_hashes(list_of_hashes: Vec<String>) -> Vec<String> {
     let mut handles = vec![];
     let process_count = num_cpus::get();
-    let hashes: Arc<Mutex<HashSet<_>>> = Arc::new(Mutex::new(list_of_hashes.clone().into_iter().collect()));
+    let hashes: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(list_of_hashes.clone()));
     let results: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
     let change: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    //let change: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     let barrier = Arc::new(Barrier::new(process_count));
 
     for process_num in 0..process_count {
