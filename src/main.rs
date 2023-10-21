@@ -7,18 +7,15 @@ use sha2::{Sha512, Digest};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
-const SYNC_FREQUENCY: usize = 100;
 
 fn crack_passwords(mut index: usize, step: usize, global_hashes: Arc<Mutex<Vec<String>>>, results: Arc<Mutex<HashMap<String, String>>>, change: Arc<AtomicBool>, barrier: Arc<Barrier>) {
     let base36 = BaseCustom::<char>::new(DIGITS.chars().collect());
-    let start: usize = index;
     loop {
         let local_hashes = global_hashes.lock().expect("Failed to acquire lock - local hashes").clone();
+        barrier.wait(); // A deadlock can occur if the global_hashes is shrunk before the above clone can occur.
         while !change.load(Ordering::Acquire) {
-            for _ in 0..SYNC_FREQUENCY {
                 let plaintext = base36.gen(index.try_into().expect("Failed to convert index"));
                 let hashed = format!("{:x}", Sha512::digest(plaintext.as_bytes()));
-                //println!("Index: {:?}", index);
                 if local_hashes.contains(&hashed) {
                     println!("Index: {:?}", index);
                     global_hashes.lock().expect("Failed to acquire lock - global hashes write").retain(|x| x != &hashed);
@@ -28,15 +25,10 @@ fn crack_passwords(mut index: usize, step: usize, global_hashes: Arc<Mutex<Vec<S
                 }
 
                 index += step;
-            }
-            println!("LH: {:?}, Index: {:?}. Start {:?}", local_hashes, index, start);
         }
-        
         barrier.wait();
         change.store(false, Ordering::Release);
-        println!("Resync! GL: {:?}, Start: {:?}", global_hashes, start);
         if global_hashes.lock().expect("Failed to acquire lock - global hashes read").is_empty() {
-            println!("Quiting thread {:?} at {:?},", start, index);
             break;
         }
     }

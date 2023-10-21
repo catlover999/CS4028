@@ -1,13 +1,11 @@
 # Rust artifacts
-task4/target/
-task4/Cargo.lock
-
-# Callgrind output
-task4/callgrind.out.*
+target/
+Cargo.lock
 
 # Profiling data
-task4/flamegraph.html
-task4/perf.data
+flamegraph.html
+perf.data
+callgrind.out.*
 
 # Python bytecode
 __pycache__/

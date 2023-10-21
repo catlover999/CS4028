@@ -30,6 +30,7 @@ def crack_passwords(index: int, step: int, global_hashes: managers.ListProxy, re
     """
     while True:
         local_hashes = set(global_hashes)
+        barrier.wait()
         while not change.is_set():
             for _ in range(SYNC_FREQUENCY):
                 plaintext = base_repr(index)
